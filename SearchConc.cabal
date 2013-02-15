@@ -1,0 +1,29 @@
+name: SearchConc
+version: 0.0.1
+cabal-version: >=1.2
+build-type: Simple
+license: AllRightsReserved
+license-file: /home/frsoares/Documents/code/haskell/SearchConc/LICENSE
+maintainer: Francisco Soares
+stability: unstable
+synopsis: Prints concurrency constructs in Haskell programs
+description: Goes through a parsed program to look for calls to functions on well-known
+             concurrency packages.
+author: Francisco Soares
+data-dir: ""
+ 
+executable SearchConc
+    build-depends: base -any, ghc ==7.4.1, ghc-paths ==0.1.0.9,
+                   ghc-syb-utils ==0.2.1.1, syb ==0.3.6
+    main-is: Main.hs
+    buildable: True
+    hs-source-dirs: src
+ 
+test-suite test-SearchConc
+    build-depends: base -any, ghc ==7.4.1, ghc-paths ==0.1.0.9,
+                   ghc-syb-utils ==0.2.1.1, syb ==0.3.6
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    buildable: True
+    cpp-options: -DMAIN_FUNCTION=testMain
+    hs-source-dirs: src
