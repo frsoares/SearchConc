@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, TemplateHaskell, ScopedTypeVariables, RankNTypes #-}
+{-# LANGUAGE CPP, TemplateHaskell, ScopedTypeVariables, RankNTypes, DoAndIfThenElse #-}
 -----------------------------------------------------------------------------
 --
 -- Module      :  Main
@@ -87,14 +87,15 @@ doAllTheStuff modSum = do
     p <- parseModule modSum
     t <- typecheckModule p
     d <- desugarModule t
-    typeCheckedSource <- return $ tm_typechecked_source t
+    typeCheckedSource  <- return $ tm_typechecked_source t
 
-    maybeRenamedSource<- return $ tm_renamed_source t
---    if isJust maybeRenamedSource then do
---        renamedSource@(groups,imps,ies,hsDocString) <- return $ fromJust maybeRenamedSource
---        renamed' <- readMod renamedSource
---        return ()
---    else return ()
+    maybeRenamedSource <- return $ tm_renamed_source t
+
+    if isJust maybeRenamedSource then do
+        renamedSource  <- return $ fromJust maybeRenamedSource
+        readMod renamedSource
+        return ()
+    else do return ()
 
     powerPutStrLn ""
 
