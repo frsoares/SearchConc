@@ -38,7 +38,7 @@ import NameSet
 powerPutStrLn :: MonadIO m => String -> m ()
 powerPutStrLn = liftIO . putStrLn
 
-targetFile0 = "main.hs"
+targetFile0 = "main.hs" -- TODO: make the filename customizable.
 
 main = do
     runningGhc example
@@ -93,7 +93,10 @@ doAllTheStuff modSum = do
 
     if isJust maybeRenamedSource then do
         renamedSource  <- return $ fromJust maybeRenamedSource
-        readMod renamedSource
+        matches <- readMod' renamedSource
+        mapM (powerPutStrLn.showPpr) matches
+        
+--        readMod renamedSource
         return ()
     else do return ()
 
@@ -101,17 +104,81 @@ doAllTheStuff modSum = do
 
     return $ coreModule d
 
+readMod' :: Monad m => GHC.RenamedSource -> m [GHC.HsExpr GHC.Name]
+readMod' renamed = return $ listifyStaged' SYB.Renamer isDesiredVar renamed-- SYB.listify applyIsDesired renamed
+
+applyIsDesired :: Typeable r => r -> Bool
+applyIsDesired = (const False `SYB.extQ` postTcType `SYB.extQ` fixity `SYB.extQ` nameSet) `SYB.extQ`  isDesiredVar
+    where
+      nameSet    = const False :: NameSet    -> Bool
+      postTcType = const True  :: PostTcType -> Bool
+      fixity     = const False :: GHC.Fixity -> Bool
+
+
 readMod renamed =
     everywhereMStaged SYB.Renamer (SYB.mkM inMod) renamed
 
-everywhereMStaged :: Monad m => SYB.Stage -> SYB.GenericM m -> SYB.GenericM m
+-- SYB.extQ extends a generic query by a type-specific case.
+--
+
+
+teste stage x = (const False `SYB.extQ` postTcType `SYB.extQ` fixity `SYB.extQ` nameSet) x
+  where nameSet    = const (stage `elem` [SYB.Parser,SYB.TypeChecker]) :: NameSet    -> Bool
+        postTcType = const (stage<SYB.TypeChecker)                     :: PostTcType -> Bool
+        fixity     = const (stage<SYB.Renamer)                         :: GHC.Fixity -> Bool
+
+
+-- | Applies a transformation to a specified AST, taking into account the 
+-- stage of processing it's at.
+-- The stage must be provided to avoid trying to modify elements which
+-- may not be present at all stages of AST processing.
+everywhereMStaged :: Monad m => SYB.Stage  -- ^ The current stage of processing
+                             -> SYB.GenericM m -- ^ Transformation to be applied
+                             -> SYB.GenericM m -- ^ Transformed AST
 everywhereMStaged stage f x
-  | (const False `SYB.extQ` postTcType `SYB.extQ` fixity `SYB.extQ` nameSet) x = return x
+  | teste stage x = return x 
   | otherwise = do x' <- gmapM (everywhereMStaged stage f) x
                    f x'
-  where nameSet    = const (stage `elem` [SYB.Parser,SYB.TypeChecker]) :: NameSet -> Bool
-        postTcType = const (stage<SYB.TypeChecker)                 :: PostTcType -> Bool
-        fixity     = const (stage<SYB.Renamer)                     :: GHC.Fixity -> Bool
+
+everywhereStaged ::
+                   SYB.Stage
+                -> SYB.GenericT
+                -> SYB.GenericT
+everywhereStaged stage f x
+  | teste stage x = x
+  | otherwise = let mapped = gmapT (everywhereStaged stage f) x
+                in f mapped
+
+everythingStaged :: SYB.Stage -> (r -> r -> r) -> r -> SYB.GenericQ r -> SYB.GenericQ r
+everythingStaged stage k z f x
+  | teste stage x = z
+  | otherwise = foldl k (f x) (gmapQ (everythingStaged stage k z f) x)
+
+
+-- listify :: Typeable r => (r -> Bool) -> GenericQ [r]
+-- listify p = everything (++) ([] `mkQ` (\x -> if p x then [x] else []))
+
+listifyStaged' stage p = everythingStaged stage (++) [] ([] `SYB.mkQ` (\x -> if p x then [x] else []))
+
+listifyStaged :: (Data a, Typeable r) 
+                          => SYB.Stage
+                          -> (r -> Bool)
+                          -> a 
+                          -> [r]
+listifyStaged stage f x
+  | teste stage x = []
+  | otherwise = (SYB.listify applyIsDesired x) ++ rest
+                -- rest
+              where 
+                rest = concat $ gmapQ (listifyStaged stage f) x
+ 
+
+
+isDesiredVar :: GHC.HsExpr GHC.Name -> Bool 
+isDesiredVar (varNv@(GHC.HsVar nv)::(GHC.HsExpr GHC.Name)) =
+       if matchesAnyPrefix ["GHC.MVar.", "Control.Concurrent.", "GHC.Conc.Sync"] $ nameToString nv then True
+       else False
+isDesiredVar _ = False
 
 inMod (varNv@(GHC.HsVar nv)::(GHC.HsExpr GHC.Name))
        | matchesAnyPrefix ["GHC.MVar.", "Control.Concurrent.", "GHC.Conc.Sync"] $ nameToString nv
