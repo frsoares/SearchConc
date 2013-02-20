@@ -2,8 +2,8 @@ name: SearchConc
 version: 0.0.1
 cabal-version: >=1.2
 build-type: Simple
-license: AllRightsReserved
-license-file: /home/frsoares/Documents/code/haskell/SearchConc/LICENSE
+license: GPL-2
+license-file: ./LICENSE
 maintainer: Francisco Soares
 stability: unstable
 synopsis: Prints concurrency constructs in Haskell programs
