@@ -29,16 +29,20 @@ import Data.Data
 import Data.Maybe (isJust, fromJust)
 import Data.List (isPrefixOf)
 import System.Exit (exitFailure)
+import System.Environment (getArgs)
 
 import qualified Data.Generics.Schemes as SYB
 import qualified Data.Generics.Aliases as SYB
 import qualified GHC.SYB.Utils         as SYB
+import Bag
+import Var
 import NameSet
 
 powerPutStrLn :: MonadIO m => String -> m ()
 powerPutStrLn = liftIO . putStrLn
 
-targetFile0 = "main.hs" -- TODO: make the filename customizable.
+powerGetArgs  :: MonadIO m => m [String]
+powerGetArgs = liftIO $ getArgs
 
 main = runningGhc example
 
@@ -53,6 +57,9 @@ example = do
     let dflags' = foldl xopt_set dflags
                         [Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash, Opt_BangPatterns]
     setSessionDynFlags dflags'
+    args <- powerGetArgs
+    let targetFile0 = if null args then "Main.hs" else head args
+
     target0 <- guessTarget targetFile0 Nothing
     setTargets [target0]
     load LoadAllTargets
@@ -89,11 +96,16 @@ doAllTheStuff modSum = do
     let typeCheckedSource = tm_typechecked_source t
     let maybeRenamedSource = tm_renamed_source t
 
+--    powerPutStrLn (SYB.showData SYB.TypeChecker 0 typeCheckedSource)
+
     when (isJust maybeRenamedSource) $ do
         let renamedSource = fromJust maybeRenamedSource
-        matches <- readMod' renamedSource
-        mapM_ (powerPutStrLn.showPpr) matches
+        matches <- readMod'' typeCheckedSource -- renamedSource
         
+        mapM_ (powerPutStrLn.showPpr.varType.getTheVar) matches
+--        mapM_ (printDesiredVar) matches
+--        powerPutStrLn (SYB.showData SYB.Renamer 0 renamedSource)
+ 
 --        readMod renamedSource
         return ()
     
@@ -106,10 +118,16 @@ doAllTheStuff modSum = do
 readMod' :: Monad m => GHC.RenamedSource -> m [GHC.HsExpr GHC.Name]
 readMod' renamed = return $ listifyStaged SYB.Renamer isDesiredVar renamed
 
+readMod'' :: Monad m => GHC.TypecheckedSource -> m [GHC.HsExpr Var]
+readMod'' checked = return $ listifyStaged SYB.TypeChecker isDesiredRealVar  checked
 
 -- | Core parsing function, using the putStrLn approach.
 readMod renamed =
     everywhereMStaged SYB.Renamer (SYB.mkM inMod) renamed
+
+--readMod''' :: Monad m => GHC.TypecheckedSource -> m GHC.TypecheckedSource--[GHC.HsExpr GHC.Name]
+readMod''' checked = everywhereMStaged SYB.TypeChecker (SYB.mkM inMod) checked
+
 
 -- --------
 -- Reminder: SYB.extQ extends a generic query by a type-specific case.
@@ -125,8 +143,7 @@ checkItemStage stage x = (const False `SYB.extQ` postTcType `SYB.extQ` fixity `S
 -- | Variant of SYB.everywhere in which a Stage is supplied.
 -- The stage must be provided to avoid trying to modify elements which
 -- may not be present at all stages of AST processing.
-everywhereStaged ::
-                   SYB.Stage    -- ^ The current stage of processing
+everywhereStaged ::SYB.Stage    -- ^ The current stage of processing
                 -> SYB.GenericT -- ^ Transformation to be applied
                 -> SYB.GenericT -- ^ Transformed AST (both argument and result)
 everywhereStaged stage f x
@@ -168,6 +185,18 @@ isDesiredVar :: GHC.HsExpr GHC.Name -> Bool
 isDesiredVar (varNv@(GHC.HsVar nv)::(GHC.HsExpr GHC.Name)) =
         matchesAnyPrefix ["GHC.MVar.", "Control.Concurrent.", "GHC.Conc.Sync"] $ nameToString nv
 isDesiredVar _ = False
+
+isDesiredRealVar :: GHC.HsExpr Var -> Bool 
+isDesiredRealVar (varNv@(GHC.HsVar nv)::(GHC.HsExpr Var)) = True
+--        matchesAnyPrefix ["GHC.MVar.", "Control.Concurrent.", "GHC.Conc.Sync"] $ nameToString nv
+isDesiredRealVar _ = False
+
+getTheVar :: GHC.HsExpr Var -> Var
+getTheVar (GHC.HsVar myVar) = myVar
+
+printDesiredVar :: GHC.HsExpr Var -> IO ()
+printDesiredVar (varNv@(GHC.HsVar myVar)) = powerPutStrLn $  (showPpr . varType) myVar
+
 
 inMod (varNv@(GHC.HsVar nv)::(GHC.HsExpr GHC.Name))
        | matchesAnyPrefix ["GHC.MVar.", "Control.Concurrent.", "GHC.Conc.Sync"] $ nameToString nv
